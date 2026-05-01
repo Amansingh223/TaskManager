@@ -149,8 +149,8 @@ class AppHandler(BaseHTTPRequestHandler):
 # -------------------- MAIN --------------------
 def main():
     init_db()
-    server = HTTPServer(("127.0.0.1", 8000), AppHandler)
-    print("Server running at http://127.0.0.1:8000")
+    server = HTTPServer(("0.0.0.0", 8000), AppHandler)
+    print("Server running at http://0.0.0.0:8000")
     server.serve_forever()
 
 
