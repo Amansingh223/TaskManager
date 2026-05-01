@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ProjectFlow</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main id="authView" class="auth-shell">
+      <section class="auth-art">
+        <div>
+          <p class="eyebrow">ProjectFlow</p>
+          <h1>Projects, teams, and tasks in one accountable workspace.</h1>
+          <p>Admins create projects and assign work. Members update their tasks and keep delivery visible.</p>
+        </div>
+      </section>
+      <section class="auth-panel">
+        <div class="tabs" role="tablist">
+          <button id="loginTab" class="active" type="button">Login</button>
+          <button id="signupTab" type="button">Signup</button>
+        </div>
+        <form id="authForm" class="stack">
+          <label>
+            <span>Name</span>
+            <input id="nameInput" name="name" autocomplete="name" minlength="2">
+          </label>
+          <label>
+            <span>Email</span>
+            <input id="emailInput" name="email" type="email" autocomplete="email" required>
+          </label>
+          <label>
+            <span>Password</span>
+            <input id="passwordInput" name="password" type="password" minlength="8" autocomplete="current-password" required>
+          </label>
+          <label id="roleField">
+            <span>Role</span>
+            <select id="roleInput" name="role">
+              <option>Member</option>
+              <option>Admin</option>
+            </select>
+          </label>
+          <button id="authSubmit" class="primary" type="submit">Login</button>
+          <p id="authMessage" class="message"></p>
+        </form>
+      </section>
+    </main>
+
+    <main id="appView" class="app-shell hidden">
+      <aside class="sidebar">
+        <div>
+          <p class="eyebrow">ProjectFlow</p>
+          <h2 id="userName">Workspace</h2>
+          <p id="userRole" class="muted"></p>
+        </div>
+        <nav>
+          <button class="nav-button active" data-view="dashboard" type="button">Dashboard</button>
+          <button class="nav-button" data-view="projects" type="button">Projects</button>
+          <button class="nav-button" data-view="team" type="button">Team</button>
+        </nav>
+        <button id="logoutButton" class="ghost" type="button">Logout</button>
+      </aside>
+
+      <section class="content">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Operations</p>
+            <h1 id="pageTitle">Dashboard</h1>
+          </div>
+          <button id="refreshButton" class="ghost" type="button">Refresh</button>
+        </header>
+
+        <section id="dashboardView" class="view">
+          <div class="metrics">
+            <article><span>Todo</span><strong id="todoCount">0</strong></article>
+            <article><span>In Progress</span><strong id="progressCount">0</strong></article>
+            <article><span>Done</span><strong id="doneCount">0</strong></article>
+            <article><span>Overdue</span><strong id="overdueCount">0</strong></article>
+          </div>
+          <div class="section-heading">
+            <h2>Assigned to me</h2>
+          </div>
+          <div id="assignedList" class="task-list"></div>
+        </section>
+
+        <section id="projectsView" class="view hidden">
+          <form id="projectForm" class="toolbar admin-only">
+            <input id="projectName" placeholder="New project name" minlength="2">
+            <input id="projectDue" type="date">
+            <input id="projectDescription" placeholder="Description">
+            <button class="primary" type="submit">Create Project</button>
+          </form>
+          <div class="project-grid">
+            <div id="projectList" class="project-list"></div>
+            <div id="projectDetail" class="detail-pane empty-state">Select a project to view tasks and members.</div>
+          </div>
+        </section>
+
+        <section id="teamView" class="view hidden">
+          <div id="teamList" class="team-list"></div>
+        </section>
+
+        <p id="appMessage" class="message"></p>
+      </section>
+    </main>
+
+    <template id="taskTemplate">
+      <article class="task-row">
+        <div>
+          <h3></h3>
+          <p></p>
+        </div>
+        <select>
+          <option>Todo</option>
+          <option>In Progress</option>
+          <option>Done</option>
+        </select>
+        <button class="delete-btn">🗑</button>
+      </article>
+    </template>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
