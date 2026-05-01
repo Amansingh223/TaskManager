@@ -9,49 +9,73 @@
   <body>
     <main id="authView" class="auth-shell">
       <section class="auth-art">
-        <div>
-          <p class="eyebrow">ProjectFlow</p>
+        <img
+          src="https://images.unsplash.com/photo-1552664730-d307ca884978?auto=format&fit=crop&w=1400&q=80"
+          alt="Team planning work around a desk"
+        >
+        <div class="auth-copy">
+          <div class="brand-lockup">
+            <span class="brand-mark">PF</span>
+            <p class="eyebrow">ProjectFlow</p>
+          </div>
           <h1>Projects, teams, and tasks in one accountable workspace.</h1>
           <p>Admins create projects and assign work. Members update their tasks and keep delivery visible.</p>
+          <div class="auth-stats" aria-label="Workspace highlights">
+            <span><strong>Live</strong> task tracking</span>
+            <span><strong>Role</strong> based access</span>
+            <span><strong>Fast</strong> team updates</span>
+          </div>
         </div>
       </section>
       <section class="auth-panel">
-        <div class="tabs" role="tablist">
-          <button id="loginTab" class="active" type="button">Login</button>
-          <button id="signupTab" type="button">Signup</button>
+        <div class="auth-card">
+          <div class="auth-heading">
+            <span class="brand-mark">PF</span>
+            <div>
+              <p class="eyebrow">Welcome back</p>
+              <h2>Manage work with clarity</h2>
+            </div>
+          </div>
+          <div class="tabs" role="tablist">
+            <button id="loginTab" class="active" type="button">Login</button>
+            <button id="signupTab" type="button">Signup</button>
+          </div>
+          <form id="authForm" class="stack">
+            <label>
+              <span>Name</span>
+              <input id="nameInput" name="name" autocomplete="name" minlength="2">
+            </label>
+            <label>
+              <span>Email</span>
+              <input id="emailInput" name="email" type="email" autocomplete="email" required>
+            </label>
+            <label>
+              <span>Password</span>
+              <input id="passwordInput" name="password" type="password" minlength="8" autocomplete="current-password" required>
+            </label>
+            <label id="roleField">
+              <span>Role</span>
+              <select id="roleInput" name="role">
+                <option>Member</option>
+                <option>Admin</option>
+              </select>
+            </label>
+            <button id="authSubmit" class="primary" type="submit">Login</button>
+            <p id="authMessage" class="message"></p>
+          </form>
         </div>
-        <form id="authForm" class="stack">
-          <label>
-            <span>Name</span>
-            <input id="nameInput" name="name" autocomplete="name" minlength="2">
-          </label>
-          <label>
-            <span>Email</span>
-            <input id="emailInput" name="email" type="email" autocomplete="email" required>
-          </label>
-          <label>
-            <span>Password</span>
-            <input id="passwordInput" name="password" type="password" minlength="8" autocomplete="current-password" required>
-          </label>
-          <label id="roleField">
-            <span>Role</span>
-            <select id="roleInput" name="role">
-              <option>Member</option>
-              <option>Admin</option>
-            </select>
-          </label>
-          <button id="authSubmit" class="primary" type="submit">Login</button>
-          <p id="authMessage" class="message"></p>
-        </form>
       </section>
     </main>
 
     <main id="appView" class="app-shell hidden">
       <aside class="sidebar">
-        <div>
-          <p class="eyebrow">ProjectFlow</p>
-          <h2 id="userName">Workspace</h2>
-          <p id="userRole" class="muted"></p>
+        <div class="sidebar-profile">
+          <span class="brand-mark">PF</span>
+          <div>
+            <p class="eyebrow">ProjectFlow</p>
+            <h2 id="userName">Workspace</h2>
+            <p id="userRole" class="muted"></p>
+          </div>
         </div>
         <nav>
           <button class="nav-button active" data-view="dashboard" type="button">Dashboard</button>
