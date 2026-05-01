@@ -11,5 +11,5 @@ SECRET_PATH = BASE_DIR / ".app_secret"
 
 PBKDF2_ITERATIONS = 120_000
 TOKEN_TTL_HOURS = 24
-HOST = os.environ.get("HOST", "127.0.0.1")
+HOST = os.environ.get("HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT", "8000"))
