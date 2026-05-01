@@ -72,6 +72,15 @@ function formatDue(date) {
   return date ? `Due ${date}` : "No due date";
 }
 
+function initials(name) {
+  return String(name || "User")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0].toUpperCase())
+    .join("");
+}
+
 function isOverdue(task) {
   const today = new Date().toISOString().slice(0, 10);
   return task.due_date && task.due_date < today && task.status !== "Done";
@@ -80,11 +89,11 @@ function isOverdue(task) {
 function renderTask(task, options = {}) {
   const { canManage = false, members = [], projectId = null } = options;
   const node = $("#taskTemplate").content.firstElementChild.cloneNode(true);
+  node.dataset.status = task.status.toLowerCase().replace(/\s+/g, "-");
   node.querySelector("h3").textContent = task.title;
 
   const bits = [task.project_name, task.assignee_name && `Assigned to ${task.assignee_name}`, formatDue(task.due_date)].filter(Boolean);
-  node.querySelector("p").textContent = bits.join(" - ");
-  if (isOverdue(task)) node.querySelector("p").textContent += " - Overdue";
+  node.querySelector("p").innerHTML = `${escapeHtml(bits.join(" / "))}${isOverdue(task) ? ' <span class="overdue-label">Overdue</span>' : ""}`;
 
   const select = node.querySelector(".task-status");
   const editButton = node.querySelector(".edit-task");
@@ -187,7 +196,7 @@ async function loadDashboard() {
   const list = $("#assignedList");
   list.innerHTML = "";
   if (!data.assignedTasks.length) {
-    list.innerHTML = '<div class="empty-state detail-pane">No assigned tasks yet.</div>';
+    list.innerHTML = '<div class="empty-state detail-pane"><strong>No assigned tasks yet.</strong><span>Your focused work will appear here.</span></div>';
     return;
   }
   data.assignedTasks.forEach((task) => list.appendChild(renderTask(task)));
@@ -201,7 +210,14 @@ async function loadUsers() {
   data.users.forEach((user) => {
     const card = document.createElement("article");
     card.className = "team-card";
-    card.innerHTML = `<h3>${escapeHtml(user.name)}</h3><p>${escapeHtml(user.email)}</p><p>${escapeHtml(user.role)}</p>`;
+    card.innerHTML = `
+      <div class="avatar">${escapeHtml(initials(user.name))}</div>
+      <div>
+        <h3>${escapeHtml(user.name)}</h3>
+        <p>${escapeHtml(user.email)}</p>
+      </div>
+      <span class="role-badge">${escapeHtml(user.role)}</span>
+    `;
     list.appendChild(card);
   });
 }
@@ -212,7 +228,7 @@ async function loadProjects() {
   const list = $("#projectList");
   list.innerHTML = "";
   if (!data.projects.length) {
-    list.innerHTML = '<div class="empty-state detail-pane">No projects yet.</div>';
+    list.innerHTML = '<div class="empty-state detail-pane"><strong>No projects yet.</strong><span>New projects will show progress, members, and tasks here.</span></div>';
     $("#projectDetail").className = "detail-pane empty-state";
     $("#projectDetail").textContent = state.user.role === "Admin" ? "Create a project to begin." : "Ask an admin to add you to a project.";
     return;
@@ -224,9 +240,16 @@ async function loadProjects() {
     const card = document.createElement("article");
     card.className = "project-card";
     card.innerHTML = `
-      <h3>${escapeHtml(project.name)}</h3>
+      <div class="project-card-head">
+        <h3>${escapeHtml(project.name)}</h3>
+        <span>${pct}%</span>
+      </div>
       <p>${escapeHtml(project.description || "No description")}</p>
-      <p>${project.member_count} members - ${total} tasks - ${formatDue(project.due_date)}</p>
+      <div class="card-meta">
+        <span>${project.member_count} members</span>
+        <span>${total} tasks</span>
+        <span>${formatDue(project.due_date)}</span>
+      </div>
       <div class="progress"><span style="width:${pct}%"></span></div>
       <button class="ghost" type="button">Open</button>
     `;
@@ -259,6 +282,7 @@ function renderProjectDetail(data) {
   pane.innerHTML = `
     <div class="section-heading">
       <div>
+        <p class="eyebrow">Project detail</p>
         <h2>${escapeHtml(data.project.name)}</h2>
         <p class="muted">${escapeHtml(data.project.description || "No description")}</p>
       </div>
@@ -310,7 +334,7 @@ function renderProjectDetail(data) {
 
   const taskList = $("#projectTasks");
   if (!data.tasks.length) {
-    taskList.innerHTML = '<div class="empty-state detail-pane">No tasks in this project.</div>';
+    taskList.innerHTML = '<div class="empty-state detail-pane"><strong>No tasks in this project.</strong><span>Create the first task to start tracking delivery.</span></div>';
     return;
   }
   data.tasks.forEach((task) => {
