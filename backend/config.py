@@ -6,8 +6,8 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "static"
-DB_PATH = BASE_DIR / "project_tracker.db"
-SECRET_PATH = BASE_DIR / ".app_secret"
+DB_PATH = os.environ.get("DB_PATH", "/tmp/project_tracker.db")
+SECRET_PATH = Path(os.environ.get("SECRET_PATH", "/tmp/.app_secret"))
 
 PBKDF2_ITERATIONS = 120_000
 TOKEN_TTL_HOURS = 24
