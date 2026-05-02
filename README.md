@@ -1,72 +1,69 @@
 # TaskManager Web App
 
-A full-stack Task Management web application built using **Python (HTTPServer)**, **SQLite**, and **Vanilla JavaScript**.  
-This app allows users to manage projects, assign tasks, and track progress efficiently.
+A task management web application built with Python `http.server`, PostgreSQL/SQLite, and vanilla JavaScript.
 
----
+## Features
 
-##  Features
-
--  User Authentication (Signup/Login)
--  Role-based access (Admin / Member)
-- Project Management
-- Task Creation & Assignment
-- Task Status Tracking (Todo / In Progress / Done)
-- Team Collaboration (Project Members)
-- Fully deployed on Railway
-
----
+- User authentication with signup and login
+- Role-based access for Admin and Member accounts
+- Project management
+- Task creation and assignment
+- Task status tracking: Todo, In Progress, Done
+- Team collaboration with project members
+- Responsive UI for desktop and mobile
+- Railway deployment support
 
 ## Tech Stack
 
-- **Backend:** Python (http.server)
-- **Database:** SQLite
-- **Frontend:** HTML, CSS, JavaScript
-- **Deployment:** Railway
-- **Version Control:** Git & GitHub
+- Backend: Python
+- Database: PostgreSQL on Railway, SQLite fallback locally
+- Frontend: HTML, CSS, JavaScript
+- Deployment: Railway
+- Version Control: Git and GitHub
 
----
+## Project Structure
 
-##  Project Structure
+```text
+TaskManager/
+  backend/
+    config.py
+    db.py
+    handlers.py
+    security.py
+    validation.py
+  static/
+    index.html
+    styles.css
+    app.js
+  app.py
+  requirements.txt
+  Procfile
+  README.md
+```
 
-
-Taskmanager/
-│
-├── backend/
-│ ├── config.py
-│ ├── db.py
-│ ├── handlers.py
-│ ├── security.py
-│ ├── validation.py
-│
-├── static/
-│ ├── index.html
-│ ├── styles.css
-│ ├── app.js
-│
-├── app.py
-├── requirements.txt
-├── Procfile
-└── README.md
-
-
----
-
-## Setup Instructions
-
-### Local Setup
+## Local Setup
 
 ```bash
-cd Taskmanager
+cd TaskManager
 python app.py
+```
 
-Open in browser:
+Open:
 
+```text
 http://localhost:8000
-Deployment
+```
 
-This project is deployed on Railway:
+## Railway
 
-👉 Live URL: https://web-production-52d060.up.railway.app/
+Railway can deploy this app directly from GitHub. The `Procfile` start command is:
 
-https://taskmanager-production-110f.up.railway.app
+```bash
+web: python app.py
+```
+
+## Database
+
+The app uses PostgreSQL automatically when `DATABASE_URL` is set. On Railway, add a PostgreSQL database service to the same project, then attach its `DATABASE_URL` variable to the web service.
+
+Without `DATABASE_URL`, the app falls back to SQLite for local development.

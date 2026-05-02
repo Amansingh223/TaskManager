@@ -4,7 +4,6 @@ import hashlib
 import hmac
 import json
 import secrets
-import sqlite3
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
@@ -12,7 +11,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from .config import PBKDF2_ITERATIONS, STATIC_DIR
-from .db import connect, dict_row
+from .db import connect, dict_row, is_integrity_error
 
 
 TOKENS: dict[str, int] = {}
@@ -180,23 +179,24 @@ class AppHandler(BaseHTTPRequestHandler):
 
         try:
             with connect() as db:
-                cursor = db.execute(
+                db.execute(
                     """
                     INSERT INTO users (name, email, password_hash, role, created_at)
                     VALUES (?, ?, ?, ?, ?)
                     """,
                     (name, email, hash_password(password), role, now_iso()),
                 )
-                user_id = cursor.lastrowid
                 user = db.execute(
-                    "SELECT id, name, email, role, created_at FROM users WHERE id = ?",
-                    (user_id,),
+                    "SELECT id, name, email, role, created_at FROM users WHERE email = ?",
+                    (email,),
                 ).fetchone()
-        except sqlite3.IntegrityError:
-            return self.send_error_json(HTTPStatus.CONFLICT, "Email already exists")
+        except Exception as error:
+            if is_integrity_error(error):
+                return self.send_error_json(HTTPStatus.CONFLICT, "Email already exists")
+            raise
 
         token = secrets.token_urlsafe(32)
-        TOKENS[token] = int(user_id)
+        TOKENS[token] = int(user["id"])
         self.send_json(HTTPStatus.CREATED, {"token": token, "user": dict(user)})
 
     def login(self) -> None:
@@ -288,16 +288,25 @@ class AppHandler(BaseHTTPRequestHandler):
 
         created_at = now_iso()
         with connect() as db:
-            cursor = db.execute(
+            db.execute(
                 """
                 INSERT INTO projects (name, description, owner_id, due_date, created_at)
                 VALUES (?, ?, ?, ?, ?)
                 """,
                 (name, str(data.get("description", "")).strip(), user["id"], data.get("dueDate") or None, created_at),
             )
+            project = db.execute(
+                """
+                SELECT id FROM projects
+                WHERE owner_id = ? AND name = ? AND created_at = ?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (user["id"], name, created_at),
+            ).fetchone()
             db.execute(
                 "INSERT OR IGNORE INTO project_members (project_id, user_id, created_at) VALUES (?, ?, ?)",
-                (cursor.lastrowid, user["id"], created_at),
+                (project["id"], user["id"], created_at),
             )
         self.send_json(HTTPStatus.CREATED, {"message": "Project created"})
 
