@@ -1,19 +1,72 @@
-# TaskManager
+# TaskManager Web App
 
-Simple Python task manager app for Railway.
+A full-stack Task Management web application built using **Python (HTTPServer)**, **SQLite**, and **Vanilla JavaScript**.  
+This app allows users to manage projects, assign tasks, and track progress efficiently.
 
-## Run locally
+---
+
+##  Features
+
+-  User Authentication (Signup/Login)
+-  Role-based access (Admin / Member)
+- Project Management
+- Task Creation & Assignment
+- Task Status Tracking (Todo / In Progress / Done)
+- Team Collaboration (Project Members)
+- Fully deployed on Railway
+
+---
+
+## Tech Stack
+
+- **Backend:** Python (http.server)
+- **Database:** SQLite
+- **Frontend:** HTML, CSS, JavaScript
+- **Deployment:** Railway
+- **Version Control:** Git & GitHub
+
+---
+
+##  Project Structure
+
+
+Taskmanager/
+│
+├── backend/
+│ ├── config.py
+│ ├── db.py
+│ ├── handlers.py
+│ ├── security.py
+│ ├── validation.py
+│
+├── static/
+│ ├── index.html
+│ ├── styles.css
+│ ├── app.js
+│
+├── app.py
+├── requirements.txt
+├── Procfile
+└── README.md
+
+
+---
+
+## Setup Instructions
+
+### Local Setup
 
 ```bash
+cd Taskmanager
 python app.py
-```
 
-The server listens on `PORT` from the environment, or `8000` locally.
+Open in browser:
 
-## Railway
+http://localhost:8000
+Deployment
 
-Railway can deploy this app directly from GitHub. The `Procfile` start command is:
+This project is deployed on Railway:
 
-```bash
-web: python app.py
-```
+👉 Live URL: https://web-production-52d060.up.railway.app/
+
+https://taskmanager-production-110f.up.railway.app
