@@ -67,3 +67,11 @@ web: python app.py
 The app uses PostgreSQL automatically when `DATABASE_URL` is set. On Railway, add a PostgreSQL database service to the same project, then attach its `DATABASE_URL` variable to the web service.
 
 Without `DATABASE_URL`, the app falls back to SQLite for local development.
+
+For Supabase, use the PostgreSQL connection string from Supabase Database settings. Set it in Railway as:
+
+```text
+SUPABASE_DATABASE_URL=postgresql://...
+```
+
+Do not use the Supabase anon public key as the database URL. The anon key is for Supabase APIs, not direct PostgreSQL connections.
