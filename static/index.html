@@ -124,6 +124,15 @@
             </div>
           </div>
           <div id="assignedList" class="task-list"></div>
+          <div id="adminInsights" class="admin-insights admin-only hidden">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Admin analytics</p>
+                <h2>Member performance</h2>
+              </div>
+            </div>
+            <div id="teamPerformance" class="performance-grid"></div>
+          </div>
         </section>
 
         <section id="projectsView" class="view hidden">
@@ -146,6 +155,16 @@
         </section>
 
         <section id="teamView" class="view hidden">
+          <form id="teamForm" class="toolbar admin-only">
+            <input id="teamName" placeholder="Member name" minlength="2">
+            <input id="teamEmail" type="email" placeholder="member@company.com">
+            <input id="teamPassword" type="password" placeholder="Temporary password" minlength="8">
+            <select id="teamRole">
+              <option>Member</option>
+              <option>Admin</option>
+            </select>
+            <button class="primary" type="submit">Add member</button>
+          </form>
           <div class="section-heading">
             <div>
               <p class="eyebrow">Workspace</p>

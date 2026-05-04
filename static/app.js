@@ -47,6 +47,20 @@ const demoData = {
   ],
 };
 
+function calculatePerformance(users, tasks) {
+  return users.map((user) => {
+    const assigned = tasks.filter((task) => task.assignee_id === user.id);
+    return {
+      ...user,
+      total_tasks: assigned.length,
+      done_tasks: assigned.filter((task) => task.status === "Done").length,
+      progress_tasks: assigned.filter((task) => task.status === "In Progress").length,
+      todo_tasks: assigned.filter((task) => task.status === "Todo").length,
+      overdue_tasks: assigned.filter(isOverdue).length,
+    };
+  });
+}
+
 async function api(path, options = {}) {
   const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
   if (state.token) headers.Authorization = `Bearer ${state.token}`;
@@ -76,8 +90,8 @@ function showApp(isAuthed) {
   $("#authView").classList.toggle("hidden", isAuthed);
   $("#appView").classList.toggle("hidden", !isAuthed);
   if (!isAuthed) return;
-  $("#userName").textContent = state.user.name;
-  $("#userRole").textContent = state.guest ? "Guest demo workspace" : `${state.user.role} account`;
+  $("#userName").textContent = state.user.tenant_name || state.user.name;
+  $("#userRole").textContent = state.guest ? "Guest demo workspace" : `${state.user.name} / ${state.user.role}`;
   document.querySelectorAll(".admin-only").forEach((el) => {
     el.classList.toggle("hidden", state.guest || state.user.role !== "Admin");
   });
@@ -139,6 +153,7 @@ function renderTask(task, options = {}) {
   const editButton = node.querySelector(".edit-task");
   const deleteButton = node.querySelector(".delete-task");
   select.value = task.status;
+  select.disabled = state.guest;
   editButton.classList.toggle("hidden", !canManage);
   deleteButton.classList.toggle("hidden", !canManage);
 
@@ -240,9 +255,52 @@ async function loadDashboard() {
   list.innerHTML = "";
   if (!data.assignedTasks.length) {
     list.innerHTML = '<div class="empty-state detail-pane"><strong>No assigned tasks yet.</strong><span>Your focused work will appear here.</span></div>';
+  } else {
+    data.assignedTasks.forEach((task) => list.appendChild(renderTask(task)));
+  }
+  renderTeamPerformance(data.teamPerformance || []);
+}
+
+function renderTeamPerformance(rows) {
+  const panel = $("#adminInsights");
+  const list = $("#teamPerformance");
+  if (!panel || !list) return;
+  panel.classList.toggle("hidden", state.guest || state.user?.role !== "Admin");
+  list.innerHTML = "";
+  if (state.guest || state.user?.role !== "Admin") return;
+  if (!rows.length) {
+    list.innerHTML = '<div class="empty-state detail-pane"><strong>No team work yet.</strong><span>Create tasks and assign them to members to see performance.</span></div>';
     return;
   }
-  data.assignedTasks.forEach((task) => list.appendChild(renderTask(task)));
+  rows.forEach((row) => {
+    const total = Number(row.total_tasks || 0);
+    const done = Number(row.done_tasks || 0);
+    const progress = Number(row.progress_tasks || 0);
+    const todo = Number(row.todo_tasks || 0);
+    const overdue = Number(row.overdue_tasks || 0);
+    const pct = total ? Math.round((done / total) * 100) : 0;
+    const card = document.createElement("article");
+    card.className = "performance-card";
+    card.innerHTML = `
+      <div class="performance-head">
+        <div class="avatar">${escapeHtml(initials(row.name))}</div>
+        <div>
+          <h3>${escapeHtml(row.name)}</h3>
+          <p>${escapeHtml(row.email || row.role)}</p>
+        </div>
+        <strong>${pct}%</strong>
+      </div>
+      <div class="progress"><span style="width:${pct}%"></span></div>
+      <div class="performance-stats">
+        <span><b>${total}</b>Total</span>
+        <span><b>${done}</b>Done</span>
+        <span><b>${progress}</b>Doing</span>
+        <span><b>${todo}</b>Todo</span>
+        <span><b>${overdue}</b>Late</span>
+      </div>
+    `;
+    list.appendChild(card);
+  });
 }
 
 async function loadUsers() {
@@ -342,6 +400,7 @@ function renderGuestDashboard() {
   const list = $("#assignedList");
   list.innerHTML = "";
   demoData.tasks.slice(0, 3).forEach((task) => list.appendChild(renderTask(task)));
+  renderTeamPerformance(calculatePerformance(demoData.users, demoData.tasks));
 }
 
 function renderGuestProjectDetail(projectId) {
@@ -371,7 +430,17 @@ function renderProjectDetail(data) {
         <h2>${escapeHtml(data.project.name)}</h2>
         <p class="muted">${escapeHtml(data.project.description || "No description")}</p>
       </div>
+      <div class="project-actions ${canManage ? "" : "hidden"}">
+        <button id="editProjectButton" class="ghost" type="button">Edit project</button>
+        <button id="deleteProjectButton" class="delete-btn" type="button">Delete project</button>
+      </div>
     </div>
+    <form id="projectEditForm" class="toolbar hidden">
+      <input id="editProjectName" value="${escapeHtml(data.project.name)}" placeholder="Project name" required minlength="2">
+      <input id="editProjectDue" type="date" value="${escapeHtml(data.project.due_date || "")}">
+      <input id="editProjectDescription" value="${escapeHtml(data.project.description || "")}" placeholder="Description">
+      <button class="primary" type="submit">Save project</button>
+    </form>
     <div class="member-strip">${data.members.map((member) => `<span class="pill">${escapeHtml(member.name)}</span>`).join("")}</div>
     <form id="memberForm" class="toolbar ${canManage ? "" : "hidden"}">
       <select id="memberSelect">${allUserOptions || "<option value=''>No users available</option>"}</select>
@@ -389,8 +458,38 @@ function renderProjectDetail(data) {
   `;
 
   if (canManage) {
+    $("#editProjectButton").addEventListener("click", () => {
+      $("#projectEditForm").classList.toggle("hidden");
+    });
+
+    $("#deleteProjectButton").addEventListener("click", async () => {
+      if (state.guest) return setMessage("Guest mode is read-only.");
+      if (!confirm(`Delete project "${data.project.name}" and all its tasks?`)) return;
+      await api(`/api/projects/${data.project.id}`, { method: "DELETE" });
+      state.selectedProjectId = null;
+      $("#projectDetail").className = "detail-pane empty-state";
+      $("#projectDetail").textContent = "Select a project to view tasks and members.";
+      await refreshAll();
+    });
+
+    $("#projectEditForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (state.guest) return setMessage("Guest mode is read-only.");
+      await api(`/api/projects/${data.project.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: $("#editProjectName").value,
+          dueDate: $("#editProjectDue").value || null,
+          description: $("#editProjectDescription").value,
+        }),
+      });
+      await refreshAll();
+      await selectProject(data.project.id);
+    });
+
     $("#memberForm").addEventListener("submit", async (event) => {
       event.preventDefault();
+      if (state.guest) return setMessage("Guest mode is read-only.");
       const userId = $("#memberSelect").value;
       if (!userId) return;
       await api(`/api/projects/${data.project.id}/members`, { method: "POST", body: JSON.stringify({ userId }) });
@@ -400,6 +499,7 @@ function renderProjectDetail(data) {
 
     $("#taskForm").addEventListener("submit", async (event) => {
       event.preventDefault();
+      if (state.guest) return setMessage("Guest mode is read-only.");
       await api("/api/tasks", {
         method: "POST",
         body: JSON.stringify({
@@ -504,6 +604,7 @@ document.querySelectorAll(".nav-button").forEach((button) => {
 $("#projectForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   try {
+    if (state.guest) return setMessage("Guest mode is read-only.");
     await api("/api/projects", {
       method: "POST",
       body: JSON.stringify({
@@ -514,6 +615,27 @@ $("#projectForm").addEventListener("submit", async (event) => {
     });
     event.target.reset();
     await refreshAll();
+  } catch (error) {
+    setMessage(error.message);
+  }
+});
+
+$("#teamForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    if (state.guest) return setMessage("Guest mode is read-only.");
+    await api("/api/users", {
+      method: "POST",
+      body: JSON.stringify({
+        name: $("#teamName").value,
+        email: $("#teamEmail").value,
+        password: $("#teamPassword").value,
+        role: $("#teamRole").value,
+      }),
+    });
+    event.target.reset();
+    await refreshAll();
+    switchView("team");
   } catch (error) {
     setMessage(error.message);
   }

@@ -137,6 +137,8 @@ class AppHandler(BaseHTTPRequestHandler):
             return self.login()
         if path == "/api/users" and method == "GET":
             return self.users()
+        if path == "/api/users" and method == "POST":
+            return self.create_user()
         if path == "/api/dashboard" and method == "GET":
             return self.dashboard()
         if path == "/api/projects" and method == "GET":
@@ -151,6 +153,10 @@ class AppHandler(BaseHTTPRequestHandler):
                 return self.send_error_json(HTTPStatus.NOT_FOUND, "Project not found")
             if len(parts) == 3 and method == "GET":
                 return self.project_detail(project_id)
+            if len(parts) == 3 and method == "PATCH":
+                return self.update_project(project_id)
+            if len(parts) == 3 and method == "DELETE":
+                return self.delete_project(project_id)
             if len(parts) == 4 and parts[3] == "members" and method == "POST":
                 return self.add_member(project_id)
 
@@ -229,7 +235,15 @@ class AppHandler(BaseHTTPRequestHandler):
         email = str(data.get("email", "")).strip().lower()
         password = str(data.get("password", ""))
         with connect() as db:
-            user = db.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+            user = db.execute(
+                """
+                SELECT users.*, tenants.name AS tenant_name
+                FROM users
+                LEFT JOIN tenants ON tenants.id = users.tenant_id
+                WHERE users.email = ?
+                """,
+                (email,),
+            ).fetchone()
         if not user or not verify_password(password, user["password_hash"]):
             return self.send_error_json(HTTPStatus.UNAUTHORIZED, "Invalid email or password")
 
@@ -245,6 +259,7 @@ class AppHandler(BaseHTTPRequestHandler):
                     "name": user["name"],
                     "email": user["email"],
                     "role": user["role"],
+                    "tenant_name": user["tenant_name"],
                 },
             },
         )
@@ -259,6 +274,43 @@ class AppHandler(BaseHTTPRequestHandler):
                 (user["tenant_id"],),
             ).fetchall()
         self.send_json(HTTPStatus.OK, {"users": [dict(row) for row in rows]})
+
+    def create_user(self) -> None:
+        user = self.require_user()
+        if not user:
+            return
+        if user["role"] != "Admin":
+            return self.send_error_json(HTTPStatus.FORBIDDEN, "Only admins can create team members")
+
+        data = self.read_json()
+        name = str(data.get("name", "")).strip()
+        email = str(data.get("email", "")).strip().lower()
+        password = str(data.get("password", ""))
+        role = str(data.get("role", "Member")).strip()
+        if len(name) < 2:
+            return self.send_error_json(HTTPStatus.BAD_REQUEST, "Name must be at least 2 characters")
+        if "@" not in email:
+            return self.send_error_json(HTTPStatus.BAD_REQUEST, "Valid email is required")
+        if len(password) < 8:
+            return self.send_error_json(HTTPStatus.BAD_REQUEST, "Password must be at least 8 characters")
+        if role not in VALID_ROLES:
+            role = "Member"
+
+        try:
+            with connect() as db:
+                db.execute(
+                    """
+                    INSERT INTO users (tenant_id, name, email, password_hash, role, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (user["tenant_id"], name, email, hash_password(password), role, now_iso()),
+                )
+        except Exception as error:
+            if is_integrity_error(error):
+                return self.send_error_json(HTTPStatus.CONFLICT, "Email already exists")
+            raise
+
+        self.send_json(HTTPStatus.CREATED, {"message": "Team member created"})
 
     def dashboard(self) -> None:
         user = self.require_user()
@@ -295,12 +347,36 @@ class AppHandler(BaseHTTPRequestHandler):
                 """,
                 (user["tenant_id"], user["id"]),
             ).fetchall()
+            team_performance = []
+            if user["role"] == "Admin":
+                team_performance = db.execute(
+                    """
+                    SELECT
+                        users.id,
+                        users.name,
+                        users.email,
+                        users.role,
+                        COUNT(tasks.id) AS total_tasks,
+                        SUM(CASE WHEN tasks.status = 'Done' THEN 1 ELSE 0 END) AS done_tasks,
+                        SUM(CASE WHEN tasks.status = 'In Progress' THEN 1 ELSE 0 END) AS progress_tasks,
+                        SUM(CASE WHEN tasks.status = 'Todo' THEN 1 ELSE 0 END) AS todo_tasks,
+                        SUM(CASE WHEN tasks.due_date < date('now') AND tasks.status != 'Done' THEN 1 ELSE 0 END) AS overdue_tasks
+                    FROM users
+                    LEFT JOIN tasks ON tasks.assignee_id = users.id
+                    LEFT JOIN projects ON projects.id = tasks.project_id
+                    WHERE users.tenant_id = ? AND (projects.tenant_id = ? OR tasks.id IS NULL)
+                    GROUP BY users.id, users.name, users.email, users.role
+                    ORDER BY done_tasks DESC, total_tasks DESC, users.name
+                    """,
+                    (user["tenant_id"], user["tenant_id"]),
+                ).fetchall()
         self.send_json(
             HTTPStatus.OK,
             {
                 "statusCounts": {row["status"]: row["count"] for row in counts},
                 "overdue": overdue,
                 "assignedTasks": [dict(row) for row in assigned],
+                "teamPerformance": [dict(row) for row in team_performance],
             },
         )
 
@@ -369,6 +445,48 @@ class AppHandler(BaseHTTPRequestHandler):
                 (project["id"], user["id"], created_at),
             )
         self.send_json(HTTPStatus.CREATED, {"message": "Project created"})
+
+    def update_project(self, project_id: int) -> None:
+        user = self.require_user()
+        if not user:
+            return
+        if not self.can_manage_project(project_id, user):
+            return self.send_error_json(HTTPStatus.FORBIDDEN, "You cannot manage this project")
+
+        data = self.read_json()
+        name = str(data.get("name", "")).strip()
+        if len(name) < 2:
+            return self.send_error_json(HTTPStatus.BAD_REQUEST, "Project name must be at least 2 characters")
+
+        with connect() as db:
+            db.execute(
+                """
+                UPDATE projects
+                SET name = ?, description = ?, due_date = ?
+                WHERE id = ? AND tenant_id = ?
+                """,
+                (
+                    name,
+                    str(data.get("description", "")).strip(),
+                    data.get("dueDate") or None,
+                    project_id,
+                    user["tenant_id"],
+                ),
+            )
+        self.send_json(HTTPStatus.OK, {"message": "Project updated"})
+
+    def delete_project(self, project_id: int) -> None:
+        user = self.require_user()
+        if not user:
+            return
+        if not self.can_manage_project(project_id, user):
+            return self.send_error_json(HTTPStatus.FORBIDDEN, "You cannot delete this project")
+
+        with connect() as db:
+            db.execute("DELETE FROM tasks WHERE project_id = ?", (project_id,))
+            db.execute("DELETE FROM project_members WHERE project_id = ?", (project_id,))
+            db.execute("DELETE FROM projects WHERE id = ? AND tenant_id = ?", (project_id, user["tenant_id"]))
+        self.send_json(HTTPStatus.OK, {"message": "Project deleted"})
 
     def project_detail(self, project_id: int) -> None:
         user = self.require_user()
