@@ -23,6 +23,12 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def make_slug(value: str) -> str:
+    clean = "".join(char.lower() if char.isalnum() else "-" for char in value).strip("-")
+    clean = "-".join(part for part in clean.split("-") if part)
+    return f"{clean or 'workspace'}-{secrets.token_hex(4)}"
+
+
 def hash_password(password: str) -> str:
     salt = secrets.token_hex(16)
     digest = hashlib.pbkdf2_hmac(
@@ -83,7 +89,12 @@ class AppHandler(BaseHTTPRequestHandler):
             return None
         with connect() as db:
             row = db.execute(
-                "SELECT id, name, email, role, created_at FROM users WHERE id = ?",
+                """
+                SELECT users.id, users.tenant_id, users.name, users.email, users.role, users.created_at, tenants.name AS tenant_name
+                FROM users
+                LEFT JOIN tenants ON tenants.id = users.tenant_id
+                WHERE users.id = ?
+                """,
                 (user_id,),
             ).fetchone()
         return dict_row(row)
@@ -168,8 +179,11 @@ class AppHandler(BaseHTTPRequestHandler):
         email = str(data.get("email", "")).strip().lower()
         password = str(data.get("password", ""))
         role = str(data.get("role", "Member")).strip()
+        workspace = str(data.get("workspace", "") or f"{name}'s Workspace").strip()
         if len(name) < 2:
             return self.send_error_json(HTTPStatus.BAD_REQUEST, "Name must be at least 2 characters")
+        if len(workspace) < 2:
+            return self.send_error_json(HTTPStatus.BAD_REQUEST, "Workspace name must be at least 2 characters")
         if "@" not in email:
             return self.send_error_json(HTTPStatus.BAD_REQUEST, "Valid email is required")
         if len(password) < 8:
@@ -179,15 +193,26 @@ class AppHandler(BaseHTTPRequestHandler):
 
         try:
             with connect() as db:
+                tenant_slug = make_slug(workspace)
+                db.execute(
+                    "INSERT INTO tenants (name, slug, created_at) VALUES (?, ?, ?)",
+                    (workspace, tenant_slug, now_iso()),
+                )
+                tenant = db.execute("SELECT id, name FROM tenants WHERE slug = ?", (tenant_slug,)).fetchone()
                 db.execute(
                     """
-                    INSERT INTO users (name, email, password_hash, role, created_at)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO users (tenant_id, name, email, password_hash, role, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     """,
-                    (name, email, hash_password(password), role, now_iso()),
+                    (tenant["id"], name, email, hash_password(password), role, now_iso()),
                 )
                 user = db.execute(
-                    "SELECT id, name, email, role, created_at FROM users WHERE email = ?",
+                    """
+                    SELECT users.id, users.tenant_id, users.name, users.email, users.role, users.created_at, tenants.name AS tenant_name
+                    FROM users
+                    LEFT JOIN tenants ON tenants.id = users.tenant_id
+                    WHERE users.email = ?
+                    """,
                     (email,),
                 ).fetchone()
         except Exception as error:
@@ -214,15 +239,25 @@ class AppHandler(BaseHTTPRequestHandler):
             HTTPStatus.OK,
             {
                 "token": token,
-                "user": {"id": user["id"], "name": user["name"], "email": user["email"], "role": user["role"]},
+                "user": {
+                    "id": user["id"],
+                    "tenant_id": user["tenant_id"],
+                    "name": user["name"],
+                    "email": user["email"],
+                    "role": user["role"],
+                },
             },
         )
 
     def users(self) -> None:
-        if not self.require_user():
+        user = self.require_user()
+        if not user:
             return
         with connect() as db:
-            rows = db.execute("SELECT id, name, email, role, created_at FROM users ORDER BY name").fetchall()
+            rows = db.execute(
+                "SELECT id, name, email, role, created_at FROM users WHERE tenant_id = ? ORDER BY name",
+                (user["tenant_id"],),
+            ).fetchall()
         self.send_json(HTTPStatus.OK, {"users": [dict(row) for row in rows]})
 
     def dashboard(self) -> None:
@@ -230,9 +265,24 @@ class AppHandler(BaseHTTPRequestHandler):
         if not user:
             return
         with connect() as db:
-            counts = db.execute("SELECT status, COUNT(*) AS count FROM tasks GROUP BY status").fetchall()
+            counts = db.execute(
+                """
+                SELECT tasks.status, COUNT(*) AS count
+                FROM tasks
+                JOIN projects ON projects.id = tasks.project_id
+                WHERE projects.tenant_id = ?
+                GROUP BY tasks.status
+                """,
+                (user["tenant_id"],),
+            ).fetchall()
             overdue = db.execute(
-                "SELECT COUNT(*) AS count FROM tasks WHERE due_date < date('now') AND status != 'Done'"
+                """
+                SELECT COUNT(*) AS count
+                FROM tasks
+                JOIN projects ON projects.id = tasks.project_id
+                WHERE projects.tenant_id = ? AND tasks.due_date < date('now') AND tasks.status != 'Done'
+                """,
+                (user["tenant_id"],),
             ).fetchone()["count"]
             assigned = db.execute(
                 """
@@ -240,10 +290,10 @@ class AppHandler(BaseHTTPRequestHandler):
                 FROM tasks
                 JOIN projects ON projects.id = tasks.project_id
                 LEFT JOIN users ON users.id = tasks.assignee_id
-                WHERE tasks.assignee_id = ?
+                WHERE projects.tenant_id = ? AND tasks.assignee_id = ?
                 ORDER BY COALESCE(tasks.due_date, '9999-12-31'), tasks.updated_at DESC
                 """,
-                (user["id"],),
+                (user["tenant_id"], user["id"]),
             ).fetchall()
         self.send_json(
             HTTPStatus.OK,
@@ -255,7 +305,8 @@ class AppHandler(BaseHTTPRequestHandler):
         )
 
     def projects(self) -> None:
-        if not self.require_user():
+        user = self.require_user()
+        if not user:
             return
         with connect() as db:
             rows = db.execute(
@@ -268,9 +319,11 @@ class AppHandler(BaseHTTPRequestHandler):
                 FROM projects
                 LEFT JOIN project_members ON project_members.project_id = projects.id
                 LEFT JOIN tasks ON tasks.project_id = projects.id
+                WHERE projects.tenant_id = ?
                 GROUP BY projects.id
                 ORDER BY projects.created_at DESC
-                """
+                """,
+                (user["tenant_id"],),
             ).fetchall()
         self.send_json(HTTPStatus.OK, {"projects": [dict(row) for row in rows]})
 
@@ -290,19 +343,26 @@ class AppHandler(BaseHTTPRequestHandler):
         with connect() as db:
             db.execute(
                 """
-                INSERT INTO projects (name, description, owner_id, due_date, created_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO projects (tenant_id, name, description, owner_id, due_date, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (name, str(data.get("description", "")).strip(), user["id"], data.get("dueDate") or None, created_at),
+                (
+                    user["tenant_id"],
+                    name,
+                    str(data.get("description", "")).strip(),
+                    user["id"],
+                    data.get("dueDate") or None,
+                    created_at,
+                ),
             )
             project = db.execute(
                 """
                 SELECT id FROM projects
-                WHERE owner_id = ? AND name = ? AND created_at = ?
+                WHERE tenant_id = ? AND owner_id = ? AND name = ? AND created_at = ?
                 ORDER BY id DESC
                 LIMIT 1
                 """,
-                (user["id"], name, created_at),
+                (user["tenant_id"], user["id"], name, created_at),
             ).fetchone()
             db.execute(
                 "INSERT OR IGNORE INTO project_members (project_id, user_id, created_at) VALUES (?, ?, ?)",
@@ -311,10 +371,14 @@ class AppHandler(BaseHTTPRequestHandler):
         self.send_json(HTTPStatus.CREATED, {"message": "Project created"})
 
     def project_detail(self, project_id: int) -> None:
-        if not self.require_user():
+        user = self.require_user()
+        if not user:
             return
         with connect() as db:
-            project = db.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+            project = db.execute(
+                "SELECT * FROM projects WHERE id = ? AND tenant_id = ?",
+                (project_id, user["tenant_id"]),
+            ).fetchone()
             if not project:
                 return self.send_error_json(HTTPStatus.NOT_FOUND, "Project not found")
             members = db.execute(
@@ -322,10 +386,10 @@ class AppHandler(BaseHTTPRequestHandler):
                 SELECT users.id, users.name, users.email, users.role
                 FROM project_members
                 JOIN users ON users.id = project_members.user_id
-                WHERE project_members.project_id = ?
+                WHERE project_members.project_id = ? AND users.tenant_id = ?
                 ORDER BY users.name
                 """,
-                (project_id,),
+                (project_id, user["tenant_id"]),
             ).fetchall()
             tasks = db.execute(
                 """
@@ -349,10 +413,17 @@ class AppHandler(BaseHTTPRequestHandler):
         if not self.can_manage_project(project_id, user):
             return self.send_error_json(HTTPStatus.FORBIDDEN, "You cannot manage this project")
         data = self.read_json()
+        member = None
         with connect() as db:
+            member = db.execute(
+                "SELECT id FROM users WHERE id = ? AND tenant_id = ?",
+                (data.get("userId"), user["tenant_id"]),
+            ).fetchone()
+            if not member:
+                return self.send_error_json(HTTPStatus.BAD_REQUEST, "User is not in this workspace")
             db.execute(
                 "INSERT OR IGNORE INTO project_members (project_id, user_id, created_at) VALUES (?, ?, ?)",
-                (project_id, data.get("userId"), now_iso()),
+                (project_id, member["id"], now_iso()),
             )
         self.send_json(HTTPStatus.OK, {"message": "Member added"})
 
@@ -371,6 +442,14 @@ class AppHandler(BaseHTTPRequestHandler):
 
         timestamp = now_iso()
         with connect() as db:
+            assignee_id = data.get("assigneeId") or None
+            if assignee_id:
+                assignee = db.execute(
+                    "SELECT id FROM users WHERE id = ? AND tenant_id = ?",
+                    (assignee_id, user["tenant_id"]),
+                ).fetchone()
+                if not assignee:
+                    return self.send_error_json(HTTPStatus.BAD_REQUEST, "Assignee is not in this workspace")
             db.execute(
                 """
                 INSERT INTO tasks (project_id, title, description, assignee_id, status, due_date, created_by, created_at, updated_at)
@@ -380,7 +459,7 @@ class AppHandler(BaseHTTPRequestHandler):
                     project_id,
                     title,
                     str(data.get("description", "")).strip(),
-                    data.get("assigneeId") or None,
+                    assignee_id,
                     status,
                     data.get("dueDate") or None,
                     user["id"],
@@ -396,7 +475,15 @@ class AppHandler(BaseHTTPRequestHandler):
             return
         data = self.read_json()
         with connect() as db:
-            task = db.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+            task = db.execute(
+                """
+                SELECT tasks.*
+                FROM tasks
+                JOIN projects ON projects.id = tasks.project_id
+                WHERE tasks.id = ? AND projects.tenant_id = ?
+                """,
+                (task_id, user["tenant_id"]),
+            ).fetchone()
             if not task:
                 return self.send_error_json(HTTPStatus.NOT_FOUND, "Task not found")
             if not self.can_manage_project(task["project_id"], user) and task["assignee_id"] != user["id"]:
@@ -405,6 +492,14 @@ class AppHandler(BaseHTTPRequestHandler):
             status = data.get("status", task["status"])
             if status not in VALID_STATUSES:
                 return self.send_error_json(HTTPStatus.BAD_REQUEST, "Invalid task status")
+            assignee_id = data.get("assigneeId", task["assignee_id"])
+            if assignee_id:
+                assignee = db.execute(
+                    "SELECT id FROM users WHERE id = ? AND tenant_id = ?",
+                    (assignee_id, user["tenant_id"]),
+                ).fetchone()
+                if not assignee:
+                    return self.send_error_json(HTTPStatus.BAD_REQUEST, "Assignee is not in this workspace")
             db.execute(
                 """
                 UPDATE tasks
@@ -414,7 +509,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 (
                     str(data.get("title", task["title"])).strip(),
                     data.get("description", task["description"]),
-                    data.get("assigneeId", task["assignee_id"]),
+                    assignee_id,
                     status,
                     data.get("dueDate", task["due_date"]),
                     now_iso(),
@@ -428,7 +523,15 @@ class AppHandler(BaseHTTPRequestHandler):
         if not user:
             return
         with connect() as db:
-            task = db.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+            task = db.execute(
+                """
+                SELECT tasks.*
+                FROM tasks
+                JOIN projects ON projects.id = tasks.project_id
+                WHERE tasks.id = ? AND projects.tenant_id = ?
+                """,
+                (task_id, user["tenant_id"]),
+            ).fetchone()
             if not task:
                 return self.send_error_json(HTTPStatus.NOT_FOUND, "Task not found")
             if not self.can_manage_project(task["project_id"], user):
@@ -442,7 +545,10 @@ class AppHandler(BaseHTTPRequestHandler):
         except (TypeError, ValueError):
             return False
         with connect() as db:
-            project = db.execute("SELECT owner_id FROM projects WHERE id = ?", (normalized_project_id,)).fetchone()
+            project = db.execute(
+                "SELECT owner_id FROM projects WHERE id = ? AND tenant_id = ?",
+                (normalized_project_id, user["tenant_id"]),
+            ).fetchone()
         return bool(project and (user["role"] == "Admin" or project["owner_id"] == user["id"]))
 
     def do_GET(self) -> None:

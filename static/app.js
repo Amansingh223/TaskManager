@@ -5,9 +5,47 @@ const state = {
   projects: [],
   selectedProjectId: null,
   mode: "login",
+  guest: false,
 };
 
 const $ = (selector) => document.querySelector(selector);
+
+const demoData = {
+  users: [
+    { id: 101, name: "Aman Singh", email: "aman@demo.team", role: "Admin" },
+    { id: 102, name: "Priya Sharma", email: "priya@demo.team", role: "Member" },
+    { id: 103, name: "Rahul Verma", email: "rahul@demo.team", role: "Member" },
+  ],
+  projects: [
+    {
+      id: 201,
+      name: "Client Launch Plan",
+      description: "Website release, content QA, and handoff timeline.",
+      owner_id: 101,
+      due_date: "2026-06-15",
+      member_count: 3,
+      task_count: 5,
+      done_count: 2,
+    },
+    {
+      id: 202,
+      name: "Mobile UX Sprint",
+      description: "Improve responsive screens and task update flows.",
+      owner_id: 101,
+      due_date: "2026-06-28",
+      member_count: 2,
+      task_count: 4,
+      done_count: 1,
+    },
+  ],
+  tasks: [
+    { id: 301, project_id: 201, title: "Finalize homepage copy", project_name: "Client Launch Plan", assignee_id: 102, assignee_name: "Priya Sharma", status: "Done", due_date: "2026-05-20", description: "" },
+    { id: 302, project_id: 201, title: "Connect production database", project_name: "Client Launch Plan", assignee_id: 101, assignee_name: "Aman Singh", status: "In Progress", due_date: "2026-05-25", description: "" },
+    { id: 303, project_id: 201, title: "Review launch checklist", project_name: "Client Launch Plan", assignee_id: 103, assignee_name: "Rahul Verma", status: "Todo", due_date: "2026-06-04", description: "" },
+    { id: 304, project_id: 202, title: "Polish phone navigation", project_name: "Mobile UX Sprint", assignee_id: 101, assignee_name: "Aman Singh", status: "Done", due_date: "2026-05-22", description: "" },
+    { id: 305, project_id: 202, title: "Test tablet project view", project_name: "Mobile UX Sprint", assignee_id: 102, assignee_name: "Priya Sharma", status: "In Progress", due_date: "2026-06-01", description: "" },
+  ],
+};
 
 async function api(path, options = {}) {
   const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
@@ -28,6 +66,7 @@ function setAuthMode(mode) {
   $("#signupTab").classList.toggle("active", mode === "signup");
   $("#authSubmit").textContent = mode === "login" ? "Login" : "Create account";
   $("#nameInput").parentElement.classList.toggle("hidden", mode === "login");
+  $("#workspaceField").classList.toggle("hidden", mode === "login");
   $("#roleField").classList.toggle("hidden", mode === "login");
   $("#passwordInput").autocomplete = mode === "login" ? "current-password" : "new-password";
   setMessage("", "#authMessage");
@@ -38,9 +77,9 @@ function showApp(isAuthed) {
   $("#appView").classList.toggle("hidden", !isAuthed);
   if (!isAuthed) return;
   $("#userName").textContent = state.user.name;
-  $("#userRole").textContent = `${state.user.role} account`;
+  $("#userRole").textContent = state.guest ? "Guest demo workspace" : `${state.user.role} account`;
   document.querySelectorAll(".admin-only").forEach((el) => {
-    el.classList.toggle("hidden", state.user.role !== "Admin");
+    el.classList.toggle("hidden", state.guest || state.user.role !== "Admin");
   });
 }
 
@@ -54,6 +93,7 @@ function saveSession(data) {
 function clearSession() {
   state.token = null;
   state.user = null;
+  state.guest = false;
   localStorage.removeItem("token");
   localStorage.removeItem("user");
 }
@@ -188,6 +228,9 @@ function renderTaskEditForm(task, members, projectId) {
 }
 
 async function loadDashboard() {
+  if (state.guest) {
+    return renderGuestDashboard();
+  }
   const data = await api("/api/dashboard");
   $("#todoCount").textContent = data.statusCounts.Todo || 0;
   $("#progressCount").textContent = data.statusCounts["In Progress"] || 0;
@@ -203,11 +246,18 @@ async function loadDashboard() {
 }
 
 async function loadUsers() {
+  if (state.guest) {
+    return renderUsers(demoData.users);
+  }
   const data = await api("/api/users");
   state.users = data.users;
+  renderUsers(data.users);
+}
+
+function renderUsers(users) {
   const list = $("#teamList");
   list.innerHTML = "";
-  data.users.forEach((user) => {
+  users.forEach((user) => {
     const card = document.createElement("article");
     card.className = "team-card";
     card.innerHTML = `
@@ -223,17 +273,25 @@ async function loadUsers() {
 }
 
 async function loadProjects() {
+  if (state.guest) {
+    state.projects = demoData.projects;
+    return renderProjects(demoData.projects);
+  }
   const data = await api("/api/projects");
   state.projects = data.projects;
+  renderProjects(data.projects);
+}
+
+async function renderProjects(projects) {
   const list = $("#projectList");
   list.innerHTML = "";
-  if (!data.projects.length) {
+  if (!projects.length) {
     list.innerHTML = '<div class="empty-state detail-pane"><strong>No projects yet.</strong><span>New projects will show progress, members, and tasks here.</span></div>';
     $("#projectDetail").className = "detail-pane empty-state";
     $("#projectDetail").textContent = state.user.role === "Admin" ? "Create a project to begin." : "Ask an admin to add you to a project.";
     return;
   }
-  data.projects.forEach((project) => {
+  projects.forEach((project) => {
     const done = Number(project.done_count || 0);
     const total = Number(project.task_count || 0);
     const pct = total ? Math.round((done / total) * 100) : 0;
@@ -262,11 +320,38 @@ async function loadProjects() {
 async function selectProject(projectId, showErrors = true) {
   try {
     state.selectedProjectId = projectId;
+    if (state.guest) {
+      return renderGuestProjectDetail(projectId);
+    }
     const data = await api(`/api/projects/${projectId}`);
     renderProjectDetail(data);
   } catch (error) {
     if (showErrors) setMessage(error.message);
   }
+}
+
+function renderGuestDashboard() {
+  const statusCounts = demoData.tasks.reduce((counts, task) => {
+    counts[task.status] = (counts[task.status] || 0) + 1;
+    return counts;
+  }, {});
+  $("#todoCount").textContent = statusCounts.Todo || 0;
+  $("#progressCount").textContent = statusCounts["In Progress"] || 0;
+  $("#doneCount").textContent = statusCounts.Done || 0;
+  $("#overdueCount").textContent = 0;
+  const list = $("#assignedList");
+  list.innerHTML = "";
+  demoData.tasks.slice(0, 3).forEach((task) => list.appendChild(renderTask(task)));
+}
+
+function renderGuestProjectDetail(projectId) {
+  const project = demoData.projects.find((item) => item.id === projectId);
+  if (!project) return;
+  renderProjectDetail({
+    project,
+    members: demoData.users,
+    tasks: demoData.tasks.filter((task) => task.project_id === projectId),
+  });
 }
 
 function renderProjectDetail(data) {
@@ -353,7 +438,7 @@ function switchView(view) {
 }
 
 async function refreshAll() {
-  if (!state.token) return;
+  if (!state.token && !state.guest) return;
   try {
     setMessage("");
     showApp(true);
@@ -371,6 +456,15 @@ async function refreshAll() {
 
 $("#loginTab").addEventListener("click", () => setAuthMode("login"));
 $("#signupTab").addEventListener("click", () => setAuthMode("signup"));
+$("#guestButton").addEventListener("click", async () => {
+  clearSession();
+  state.guest = true;
+  state.user = { id: 0, name: "Guest Explorer", role: "Guest" };
+  state.selectedProjectId = demoData.projects[0].id;
+  showApp(true);
+  await refreshAll();
+  switchView("dashboard");
+});
 
 $("#authForm").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -381,6 +475,7 @@ $("#authForm").addEventListener("submit", async (event) => {
     };
     if (state.mode === "signup") {
       payload.name = $("#nameInput").value;
+      payload.workspace = $("#workspaceInput").value;
       payload.role = $("#roleInput").value;
     }
     const data = await api(state.mode === "login" ? "/api/login" : "/api/signup", {

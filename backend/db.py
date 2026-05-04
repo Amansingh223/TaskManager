@@ -84,11 +84,59 @@ def is_integrity_error(error: Exception) -> bool:
     return psycopg is not None and isinstance(error, psycopg.IntegrityError)
 
 
+def column_exists(db: Database, table: str, column: str) -> bool:
+    if USING_POSTGRES:
+        row = db.execute(
+            """
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_name = ? AND column_name = ?
+            """,
+            (table, column),
+        ).fetchone()
+        return bool(row)
+
+    rows = db.execute(f"PRAGMA table_info({table})").fetchall()
+    return any(row["name"] == column for row in rows)
+
+
+def add_column_if_missing(db: Database, table: str, column: str, definition: str) -> None:
+    if column_exists(db, table, column):
+        return
+    db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
+def migrate_multitenancy(db: Database) -> None:
+    db.execute(
+        """
+        INSERT INTO tenants (name, slug, created_at)
+        SELECT ?, ?, ?
+        WHERE NOT EXISTS (SELECT 1 FROM tenants WHERE slug = ?)
+        """,
+        ("Default Workspace", "default", "system", "default"),
+    )
+    default_tenant = db.execute("SELECT id FROM tenants WHERE slug = ?", ("default",)).fetchone()
+
+    add_column_if_missing(db, "users", "tenant_id", "INTEGER")
+    add_column_if_missing(db, "projects", "tenant_id", "INTEGER")
+
+    db.execute("UPDATE users SET tenant_id = ? WHERE tenant_id IS NULL", (default_tenant["id"],))
+    db.execute("UPDATE projects SET tenant_id = ? WHERE tenant_id IS NULL", (default_tenant["id"],))
+
+
 def init_db() -> None:
     if USING_POSTGRES:
         schema = """
+            CREATE TABLE IF NOT EXISTS tenants (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL,
+                slug TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS users (
                 id SERIAL PRIMARY KEY,
+                tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE,
                 name TEXT NOT NULL,
                 email TEXT NOT NULL UNIQUE,
                 password_hash TEXT NOT NULL,
@@ -98,6 +146,7 @@ def init_db() -> None:
 
             CREATE TABLE IF NOT EXISTS projects (
                 id SERIAL PRIMARY KEY,
+                tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE,
                 name TEXT NOT NULL,
                 description TEXT NOT NULL DEFAULT '',
                 owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -127,8 +176,16 @@ def init_db() -> None:
         """
     else:
         schema = """
+            CREATE TABLE IF NOT EXISTS tenants (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                slug TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tenant_id INTEGER,
                 name TEXT NOT NULL,
                 email TEXT NOT NULL UNIQUE,
                 password_hash TEXT NOT NULL,
@@ -138,6 +195,7 @@ def init_db() -> None:
 
             CREATE TABLE IF NOT EXISTS projects (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tenant_id INTEGER,
                 name TEXT NOT NULL,
                 description TEXT NOT NULL DEFAULT '',
                 owner_id INTEGER NOT NULL,
@@ -168,3 +226,4 @@ def init_db() -> None:
 
     with connect() as db:
         db.executescript(schema)
+        migrate_multitenancy(db)

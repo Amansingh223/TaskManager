@@ -45,6 +45,10 @@
               <span>Name</span>
               <input id="nameInput" name="name" autocomplete="name" minlength="2">
             </label>
+            <label id="workspaceField">
+              <span>Workspace</span>
+              <input id="workspaceInput" name="workspace" autocomplete="organization" minlength="2" placeholder="Company or team name">
+            </label>
             <label>
               <span>Email</span>
               <input id="emailInput" name="email" type="email" autocomplete="email" required>
@@ -61,6 +65,7 @@
               </select>
             </label>
             <button id="authSubmit" class="primary" type="submit">Login</button>
+            <button id="guestButton" class="ghost guest-button" type="button">Explore as guest</button>
             <p id="authMessage" class="message"></p>
           </form>
         </div>
