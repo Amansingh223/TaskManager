@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from .config import DATABASE_URL, DB_PATH
 
@@ -17,12 +18,23 @@ except ImportError:  # Local SQLite mode does not need psycopg installed.
 USING_POSTGRES = bool(DATABASE_URL)
 
 
+def postgres_url() -> str:
+    if not DATABASE_URL:
+        return ""
+
+    url = DATABASE_URL.strip()
+    parsed = urlsplit(url)
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    query.setdefault("sslmode", "require")
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment))
+
+
 class Database:
     def __init__(self):
         if USING_POSTGRES:
             if psycopg is None:
                 raise RuntimeError("psycopg is required when DATABASE_URL is set")
-            self.conn = psycopg.connect(DATABASE_URL, row_factory=pg_dict_row)
+            self.conn = psycopg.connect(postgres_url(), row_factory=pg_dict_row)
         else:
             if DB_PATH != ":memory:":
                 Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)

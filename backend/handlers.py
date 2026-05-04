@@ -11,7 +11,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from .config import PBKDF2_ITERATIONS, STATIC_DIR
-from .db import connect, dict_row, is_integrity_error
+from .db import USING_POSTGRES, connect, dict_row, is_integrity_error
 
 
 TOKENS: dict[str, int] = {}
@@ -130,7 +130,15 @@ class AppHandler(BaseHTTPRequestHandler):
 
     def route_api(self, method: str, path: str, query: dict) -> None:
         if path == "/api/health" and method == "GET":
-            return self.send_json(HTTPStatus.OK, {"message": "Server Running"})
+            return self.send_json(
+                HTTPStatus.OK,
+                {
+                    "message": "Server Running",
+                    "database": "postgres" if USING_POSTGRES else "sqlite",
+                },
+            )
+        if path == "/api/db-health" and method == "GET":
+            return self.db_health()
         if path == "/api/signup" and method == "POST":
             return self.signup()
         if path == "/api/login" and method == "POST":
@@ -172,6 +180,20 @@ class AppHandler(BaseHTTPRequestHandler):
                 return self.delete_task(task_id)
 
         self.send_error_json(HTTPStatus.NOT_FOUND, "API endpoint not found")
+
+    def db_health(self) -> None:
+        with connect() as db:
+            users = db.execute("SELECT COUNT(*) AS count FROM users").fetchone()["count"]
+            tenants = db.execute("SELECT COUNT(*) AS count FROM tenants").fetchone()["count"]
+        self.send_json(
+            HTTPStatus.OK,
+            {
+                "database": "postgres" if USING_POSTGRES else "sqlite",
+                "tablesReady": True,
+                "tenants": tenants,
+                "users": users,
+            },
+        )
 
     def parse_id(self, value: str) -> int | None:
         try:
